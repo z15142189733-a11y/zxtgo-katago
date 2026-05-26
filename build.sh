@@ -4,30 +4,38 @@
 # ============================================================
 set -e
 
-KATAGO_VERSION="v1.14.0"
-KATAGO_URL="https://github.com/lightvector/KataGo/releases/download/${KATAGO_VERSION}/katago-${KATAGO_VERSION}-cpu-linux-x86_64.zip"
+# v1.14.1 eigen（CPU纯计算版）是最后一个提供 Linux CPU 预编译二进制的稳定版本
+KATAGO_VERSION="v1.14.1"
+# 注意：文件名格式是 eigen-linux-x64，不是 cpu-linux-x86_64
+KATAGO_URL="https://github.com/lightvector/KataGo/releases/download/${KATAGO_VERSION}/katago-${KATAGO_VERSION}-eigen-linux-x64.zip"
 
 # ── 下载 KataGo 引擎 ──────────────────────────────────────
 if [ ! -f "katago" ]; then
-    echo "▶ 下载 KataGo ${KATAGO_VERSION} (CPU 版)..."
-    wget -q --show-progress "${KATAGO_URL}" -O katago.zip
+    echo "▶ 下载 KataGo ${KATAGO_VERSION} (Eigen/CPU 版)..."
+    wget --timeout=120 "${KATAGO_URL}" -O katago.zip
+    if [ $? -ne 0 ]; then
+        echo "✗ 下载失败，请检查网络或 URL: ${KATAGO_URL}"
+        exit 1
+    fi
     unzip -q katago.zip
     # zip 内可能有子目录，找到实际二进制
-    FOUND=$(find . -maxdepth 3 -name "katago" -type f | head -1)
+    FOUND=$(find . -maxdepth 3 -name "katago" -not -name "*.zip" -type f | head -1)
     if [ -z "$FOUND" ]; then
-        echo "✗ 未找到 katago 二进制，请检查 ZIP 结构"
+        echo "ZIP 内容如下（帮助排查）："
+        unzip -l katago.zip | head -20
+        echo "✗ 未找到 katago 二进制"
         exit 1
     fi
     cp "$FOUND" ./katago
     chmod +x ./katago
     rm -f katago.zip
-    echo "✓ KataGo 下载完成"
+    echo "✓ KataGo 下载完成（来源: $FOUND）"
 else
     echo "✓ KataGo 已存在，跳过"
 fi
 
 # 验证二进制可执行
-./katago version || { echo "✗ KataGo 无法运行，架构不匹配？"; exit 1; }
+./katago version 2>&1 | head -3 || { echo "✗ KataGo 无法运行"; exit 1; }
 
 # ── 下载围棋模型 ──────────────────────────────────────────
 mkdir -p models
