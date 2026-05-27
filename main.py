@@ -37,6 +37,18 @@ class KataGoEngine:
 
     def _start(self):
         logger.info("正在启动 KataGo 引擎，加载模型中…")
+
+        # 把 ./lib 目录加入动态库搜索路径，确保 KataGo 能找到 libzip.so.5
+        env = os.environ.copy()
+        lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if os.path.exists(lib_dir):
+            old = env.get("LD_LIBRARY_PATH", "")
+            env["LD_LIBRARY_PATH"] = f"{lib_dir}:{old}" if old else lib_dir
+            logger.info(f"LD_LIBRARY_PATH → {env['LD_LIBRARY_PATH']}")
+            logger.info(f"lib 目录内容: {os.listdir(lib_dir)}")
+        else:
+            logger.warning(f"lib 目录不存在: {lib_dir}")
+
         self.process = subprocess.Popen(
             [KATAGO_BIN, "gtp", "-model", MODEL_PATH, "-config", CONFIG_PATH],
             stdin=subprocess.PIPE,
@@ -44,6 +56,7 @@ class KataGoEngine:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=env,   # ← 关键：把 LD_LIBRARY_PATH 传给 KataGo 进程
         )
         time.sleep(5)
         if self.process.poll() is not None:
@@ -108,9 +121,15 @@ class KataGoEngine:
 
 # ─── 启动引擎 ─────────────────────────────────────────────
 engine = None
+engine_error = None
 try:
+    # 打印关键路径，方便排查
+    logger.info(f"KataGo 路径: {os.path.abspath(KATAGO_BIN)}, 存在: {os.path.exists(KATAGO_BIN)}")
+    logger.info(f"模型路径:   {os.path.abspath(MODEL_PATH)}, 存在: {os.path.exists(MODEL_PATH)}")
+    logger.info(f"配置路径:   {os.path.abspath(CONFIG_PATH)}, 存在: {os.path.exists(CONFIG_PATH)}")
     engine = KataGoEngine()
 except Exception as e:
+    engine_error = str(e)
     logger.error(f"引擎初始化失败: {e}")
 
 
@@ -130,8 +149,12 @@ def add_cors(response):
 @app.route("/", methods=["GET"])
 def health():
     return jsonify({
-        "status": "ok" if engine is not None else "engine_not_ready",
-        "engine_ready": engine is not None,
+        "status":        "ok" if engine is not None else "engine_not_ready",
+        "engine_ready":  engine is not None,
+        "error":         engine_error,
+        "katago_exists": os.path.exists(KATAGO_BIN),
+        "model_exists":  os.path.exists(MODEL_PATH),
+        "config_exists": os.path.exists(CONFIG_PATH),
     })
 
 
