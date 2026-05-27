@@ -24,8 +24,8 @@ RUN wget -q "https://github.com/lightvector/KataGo/releases/download/v1.14.1/kat
 # ── 下载围棋神经网络模型（b10c128，内存小，适合512MB免费版）──
 RUN mkdir -p /app/models \
     && wget -q "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b10c128-s1141046784-d204142634.txt.gz" \
-         -O /app/models/model.bin.gz \
-    && ls -lh /app/models/model.bin.gz
+         -O /app/models/model.txt.gz \
+    && ls -lh /app/models/model.txt.gz
 
 # ── Python 依赖 ──
 COPY requirements.txt .
@@ -35,7 +35,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY main.py gtp.cfg ./
 
 ENV KATAGO_BIN=/usr/local/bin/katago
-ENV MODEL_PATH=/app/models/model.bin.gz
+ENV MODEL_PATH=/app/models/model.txt.gz
 ENV CONFIG_PATH=/app/gtp.cfg
 ENV PORT=10000
 
