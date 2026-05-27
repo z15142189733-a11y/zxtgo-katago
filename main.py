@@ -25,7 +25,7 @@ MODEL_PATH  = os.environ.get("MODEL_PATH",  "./models/model.bin.gz")
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "./gtp.cfg")
 PORT        = int(os.environ.get("PORT", 8080))
 
-VISITS = {"easy": 50, "medium": 200, "hard": 500}
+VISITS = {"easy": 20, "medium": 100, "hard": 500}
 
 
 # ─── KataGo GTP 进程封装 ──────────────────────────────────
