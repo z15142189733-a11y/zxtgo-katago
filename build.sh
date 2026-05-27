@@ -4,29 +4,64 @@
 # ============================================================
 set -e
 
-# ── 准备 KataGo 运行所需的系统库（不需要 root/apt-get）──
+# ── 准备 KataGo 运行所需的系统库（用 Python 下载解压，无需 root）──
 echo "▶ 准备 libzip.so.5 依赖..."
-mkdir -p ./lib
+python3 - << 'PYEOF'
+import urllib.request, subprocess, os, glob, shutil, sys
 
-# 直接下载 .deb 包，用 dpkg-deb 提取（完全无需 root 权限）
-LIBZIP5_URL="http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1_amd64.deb"
-wget -q --timeout=60 "$LIBZIP5_URL" -O /tmp/libzip5.deb && \
-  dpkg-deb -x /tmp/libzip5.deb /tmp/lz_extract/ && \
-  find /tmp/lz_extract -name "libzip.so*" -exec cp {} ./lib/ \; && \
-  echo "✓ libzip 提取完成" || echo "⚠ libzip5 包下载失败，继续尝试..."
+os.makedirs('./lib', exist_ok=True)
 
-# 如果 libzip.so.5 还不存在，尝试从系统找并复制
-if [ ! -f "./lib/libzip.so.5" ]; then
-    SYSLIB=$(find /usr/lib /lib -name "libzip.so*" -not -type d 2>/dev/null | head -1)
-    if [ -n "$SYSLIB" ]; then
-        cp "$SYSLIB" ./lib/libzip.so.5
-        echo "✓ 从系统复制 libzip: $SYSLIB"
-    else
-        echo "⚠ 未找到 libzip，KataGo 启动可能失败"
-    fi
-fi
+def try_download_extract(url, label):
+    print(f"  尝试: {label}")
+    try:
+        urllib.request.urlretrieve(url, '/tmp/libzip_pkg.deb')
+        os.makedirs('/tmp/lz_ext', exist_ok=True)
+        subprocess.run(['dpkg-deb', '-x', '/tmp/libzip_pkg.deb', '/tmp/lz_ext'],
+                       check=True, capture_output=True)
+        found = glob.glob('/tmp/lz_ext/**/*libzip*', recursive=True)
+        for f in found:
+            if os.path.isfile(f):
+                dst = os.path.join('./lib', os.path.basename(f))
+                shutil.copy2(f, dst)
+                print(f"  复制: {os.path.basename(f)}")
+        return True
+    except Exception as e:
+        print(f"  失败: {e}")
+        return False
 
-echo "lib 目录内容: $(ls ./lib/ 2>/dev/null || echo '空')"
+# 尝试 Ubuntu 20.04 的 libzip5（和 KataGo eigen 二进制编译版本一致）
+urls = [
+    ("http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1_amd64.deb", "libzip5 focal"),
+    ("http://security.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1ubuntu0.1_amd64.deb", "libzip5 focal-security"),
+    ("http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip4_1.7.3-1ubuntu2_amd64.deb", "libzip4 jammy"),
+]
+
+for url, label in urls:
+    if try_download_extract(url, label):
+        break
+
+# 确保最终有 libzip.so.5 这个名字（无论下载的是哪个版本）
+if not os.path.exists('./lib/libzip.so.5'):
+    candidates = sorted(glob.glob('./lib/libzip.so*'))
+    if candidates:
+        shutil.copy2(candidates[0], './lib/libzip.so.5')
+        print(f"  创建别名: {candidates[0]} → libzip.so.5")
+
+# 如果下载都失败，尝试从系统复制
+if not os.path.exists('./lib/libzip.so.5'):
+    for search_dir in ['/usr/lib/x86_64-linux-gnu', '/usr/lib', '/lib']:
+        found = glob.glob(f'{search_dir}/libzip.so*')
+        if found:
+            shutil.copy2(found[0], './lib/libzip.so.5')
+            print(f"  从系统复制: {found[0]}")
+            break
+
+print(f"lib 目录: {os.listdir('./lib') if os.path.exists('./lib') else '空'}")
+if os.path.exists('./lib/libzip.so.5'):
+    print("✓ libzip.so.5 准备完成")
+else:
+    print("⚠ libzip.so.5 未能准备，KataGo 可能启动失败")
+PYEOF
 
 # v1.14.1 eigen（CPU纯计算版）是最后一个提供 Linux CPU 预编译二进制的稳定版本
 KATAGO_VERSION="v1.14.1"
