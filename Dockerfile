@@ -21,9 +21,9 @@ RUN wget -q "https://github.com/lightvector/KataGo/releases/download/v1.14.1/kat
     && rm -rf /tmp/katago.zip /tmp/katago_extract \
     && katago version
 
-# ── 下载围棋神经网络模型（b18c384，URL 已验证有效）──
+# ── 下载围棋神经网络模型（b10c128，内存小，适合512MB免费版）──
 RUN mkdir -p /app/models \
-    && wget -q "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b18c384nbt-s9131461376-d4087399203.bin.gz" \
+    && wget -q "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b10c128-s1141046784-d204142634.txt.gz" \
          -O /app/models/model.bin.gz \
     && ls -lh /app/models/model.bin.gz
 
