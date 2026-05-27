@@ -4,6 +4,21 @@
 # ============================================================
 set -e
 
+# ── 安装 KataGo 运行所需的系统库 ─────────────────────────
+echo "▶ 安装系统依赖 libzip..."
+mkdir -p ./lib
+apt-get update -qq 2>/dev/null
+# 先尝试直接装 libzip5，失败则装 libzip4 并复制过来
+apt-get install -y libzip5 2>/dev/null || apt-get install -y libzip4 2>/dev/null || true
+# 找到实际的 .so 文件，复制到 ./lib/libzip.so.5（KataGo 要找这个名字）
+LIBZIP=$(find /usr/lib /lib -name "libzip.so*" -not -type d 2>/dev/null | head -1)
+if [ -n "$LIBZIP" ]; then
+    cp "$LIBZIP" ./lib/libzip.so.5
+    echo "✓ libzip 准备完成: $LIBZIP → ./lib/libzip.so.5"
+else
+    echo "⚠ 未找到 libzip，KataGo 可能无法运行"
+fi
+
 # v1.14.1 eigen（CPU纯计算版）是最后一个提供 Linux CPU 预编译二进制的稳定版本
 KATAGO_VERSION="v1.14.1"
 # 注意：文件名格式是 eigen-linux-x64，不是 cpu-linux-x86_64
