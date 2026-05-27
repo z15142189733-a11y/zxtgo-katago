@@ -4,64 +4,139 @@
 # ============================================================
 set -e
 
-# ── 准备 KataGo 运行所需的系统库（用 Python 下载解压，无需 root）──
-echo "▶ 准备 libzip.so.5 依赖..."
+mkdir -p ./lib
+
+# ── 方案1：直接从系统查找 libzip（最快，通常 Render Ubuntu 已有 .so.4）──
+echo "▶ 查找系统中的 libzip..."
+SYSTEM_LIBZIP=$(find /usr/lib /lib -name 'libzip.so*' 2>/dev/null | head -1)
+if [ -n "$SYSTEM_LIBZIP" ]; then
+    cp "$SYSTEM_LIBZIP" ./lib/libzip.so.5
+    echo "✓ 从系统复制: $SYSTEM_LIBZIP → ./lib/libzip.so.5"
+else
+    echo "  系统未找到 libzip，继续下一步..."
+fi
+
+# ── 方案2：尝试 apt-get（某些 Render 环境有权限）──
+if [ ! -f "./lib/libzip.so.5" ]; then
+    echo "▶ 尝试 apt-get 安装 libzip..."
+    if sudo apt-get install -y libzip5 libzip4 2>/dev/null || apt-get install -y libzip5 libzip4 2>/dev/null; then
+        echo "✓ apt-get 安装成功"
+        SYSTEM_LIBZIP=$(find /usr/lib /lib -name 'libzip.so*' 2>/dev/null | head -1)
+        [ -n "$SYSTEM_LIBZIP" ] && cp "$SYSTEM_LIBZIP" ./lib/libzip.so.5 && echo "  复制: $SYSTEM_LIBZIP"
+    else
+        echo "  apt-get 不可用，继续..."
+    fi
+fi
+
+# ── 方案3：手动下载 .deb 并用 ar+tar 解包（无需任何特权工具）──
+echo "▶ 准备 libzip.so.5（ar+tar 解包）..."
 python3 - << 'PYEOF'
 import urllib.request, subprocess, os, glob, shutil, sys
 
 os.makedirs('./lib', exist_ok=True)
 
-def try_download_extract(url, label):
-    print(f"  尝试: {label}")
-    try:
-        urllib.request.urlretrieve(url, '/tmp/libzip_pkg.deb')
-        os.makedirs('/tmp/lz_ext', exist_ok=True)
-        subprocess.run(['dpkg-deb', '-x', '/tmp/libzip_pkg.deb', '/tmp/lz_ext'],
-                       check=True, capture_output=True)
-        found = glob.glob('/tmp/lz_ext/**/*libzip*', recursive=True)
-        for f in found:
-            if os.path.isfile(f):
-                dst = os.path.join('./lib', os.path.basename(f))
-                shutil.copy2(f, dst)
-                print(f"  复制: {os.path.basename(f)}")
-        return True
-    except Exception as e:
-        print(f"  失败: {e}")
-        return False
+def extract_deb_ar(deb_path, extract_dir):
+    """用 ar x + tar xf 解包 .deb，不依赖 dpkg-deb"""
+    shutil.rmtree(extract_dir, ignore_errors=True)
+    os.makedirs(extract_dir, exist_ok=True)
 
-# 尝试 Ubuntu 20.04 的 libzip5（和 KataGo eigen 二进制编译版本一致）
-urls = [
-    ("http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1_amd64.deb", "libzip5 focal"),
-    ("http://security.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1ubuntu0.1_amd64.deb", "libzip5 focal-security"),
-    ("http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip4_1.7.3-1ubuntu2_amd64.deb", "libzip4 jammy"),
-]
+    # 1. ar x 解包（.deb = ar 归档）
+    r = subprocess.run(
+        ['ar', 'x', os.path.abspath(deb_path)],
+        cwd=extract_dir, capture_output=True, text=True
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"ar x 失败: {r.stderr.strip()}")
 
-for url, label in urls:
-    if try_download_extract(url, label):
-        break
+    ar_files = os.listdir(extract_dir)
+    print(f"  ar 解包文件: {ar_files}", flush=True)
 
-# 确保最终有 libzip.so.5 这个名字（无论下载的是哪个版本）
-if not os.path.exists('./lib/libzip.so.5'):
-    candidates = sorted(glob.glob('./lib/libzip.so*'))
-    if candidates:
-        shutil.copy2(candidates[0], './lib/libzip.so.5')
-        print(f"  创建别名: {candidates[0]} → libzip.so.5")
+    # 2. 找 data.tar.* 并解包
+    data_tars = [f for f in ar_files if f.startswith('data.tar')]
+    if not data_tars:
+        raise RuntimeError(f"未找到 data.tar.*，ar 内容: {ar_files}")
 
-# 如果下载都失败，尝试从系统复制
-if not os.path.exists('./lib/libzip.so.5'):
-    for search_dir in ['/usr/lib/x86_64-linux-gnu', '/usr/lib', '/lib']:
-        found = glob.glob(f'{search_dir}/libzip.so*')
-        if found:
-            shutil.copy2(found[0], './lib/libzip.so.5')
-            print(f"  从系统复制: {found[0]}")
+    data_tar = os.path.join(extract_dir, data_tars[0])
+    content_dir = os.path.join(extract_dir, 'content')
+    os.makedirs(content_dir, exist_ok=True)
+
+    r2 = subprocess.run(
+        ['tar', 'xf', data_tar, '-C', content_dir],
+        capture_output=True, text=True
+    )
+    if r2.returncode != 0:
+        raise RuntimeError(f"tar xf 失败: {r2.stderr.strip()}")
+
+    return content_dir
+
+# 已经有 libzip.so.5 则跳过
+if os.path.exists('./lib/libzip.so.5'):
+    print("✓ libzip.so.5 已存在，跳过下载", flush=True)
+else:
+    urls = [
+        ("http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1_amd64.deb",         "libzip5 focal"),
+        ("http://security.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1ubuntu0.1_amd64.deb","libzip5 focal-security"),
+        ("http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip4_1.7.3-1ubuntu2_amd64.deb",   "libzip4 jammy"),
+    ]
+
+    for url, label in urls:
+        print(f"\n  [{label}] 下载 {url}", flush=True)
+        try:
+            urllib.request.urlretrieve(url, '/tmp/libzip_pkg.deb')
+            size = os.path.getsize('/tmp/libzip_pkg.deb')
+            print(f"  下载完成 {size} bytes", flush=True)
+
+            content_dir = extract_deb_ar('/tmp/libzip_pkg.deb', '/tmp/lz_ext')
+
+            found = glob.glob(f'{content_dir}/**/*libzip*.so*', recursive=True)
+            print(f"  找到 so 文件: {found}", flush=True)
+
+            for f in found:
+                if os.path.isfile(f):
+                    dst = os.path.join('./lib', os.path.basename(f))
+                    shutil.copy2(f, dst)
+                    print(f"  复制: {os.path.basename(f)}", flush=True)
+
+            if glob.glob('./lib/libzip.so*'):
+                print(f"  ✓ 提取成功", flush=True)
+                break
+        except Exception as e:
+            print(f"  ✗ 失败: {e}", flush=True)
+
+    # 统一命名为 libzip.so.5
+    if not os.path.exists('./lib/libzip.so.5'):
+        for candidate in sorted(glob.glob('./lib/libzip.so*')):
+            shutil.copy2(candidate, './lib/libzip.so.5')
+            print(f"  别名: {os.path.basename(candidate)} → libzip.so.5", flush=True)
             break
 
-print(f"lib 目录: {os.listdir('./lib') if os.path.exists('./lib') else '空'}")
+    # 最后兜底：从系统目录复制
+    if not os.path.exists('./lib/libzip.so.5'):
+        print("  从系统目录查找 libzip...", flush=True)
+        for d in ['/usr/lib/x86_64-linux-gnu', '/usr/lib', '/lib/x86_64-linux-gnu', '/lib']:
+            for f in glob.glob(f'{d}/libzip.so*'):
+                shutil.copy2(f, './lib/libzip.so.5')
+                print(f"  系统复制: {f}", flush=True)
+                break
+            if os.path.exists('./lib/libzip.so.5'):
+                break
+
+print(f"\nlib 目录: {os.listdir('./lib') if os.path.exists('./lib') else '空'}", flush=True)
 if os.path.exists('./lib/libzip.so.5'):
-    print("✓ libzip.so.5 准备完成")
+    import struct
+    size = os.path.getsize('./lib/libzip.so.5')
+    print(f"✓ libzip.so.5 准备完成 ({size} bytes)")
 else:
-    print("⚠ libzip.so.5 未能准备，KataGo 可能启动失败")
+    print("✗ 错误: libzip.so.5 未能准备")
+    sys.exit(1)
 PYEOF
+
+# 确认 libzip.so.5 已就位
+if [ ! -f "./lib/libzip.so.5" ]; then
+    echo "✗ libzip.so.5 缺失，终止构建"
+    exit 1
+fi
+echo "✓ libzip.so.5: $(ls -lh ./lib/libzip.so.5 | awk '{print $5}')"
 
 # v1.14.1 eigen（CPU纯计算版）是最后一个提供 Linux CPU 预编译二进制的稳定版本
 KATAGO_VERSION="v1.14.1"
