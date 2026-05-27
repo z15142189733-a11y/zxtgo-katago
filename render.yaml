@@ -5,14 +5,16 @@ services:
     region: singapore       # 推荐：新加坡节点，亚洲延迟最低
     plan: free              # 免费计划（15分钟无访问后自动休眠）
     buildCommand: bash build.sh && pip install -r requirements.txt
-    startCommand: python main.py
+    startCommand: flask --app main run --host 0.0.0.0 --port $PORT
     healthCheckPath: /
     envVars:
       - key: PORT
-        value: "10000"      # Render 默认监听端口
+        value: "10000"
       - key: KATAGO_BIN
         value: "./katago"
       - key: MODEL_PATH
         value: "./models/model.bin.gz"
       - key: CONFIG_PATH
         value: "./gtp.cfg"
+      - key: LD_LIBRARY_PATH
+        value: "/opt/render/project/src/lib"   # libzip.so.5 放在这里
