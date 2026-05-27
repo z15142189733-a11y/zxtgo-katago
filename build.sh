@@ -26,7 +26,10 @@ if [ ! -f "katago" ]; then
         echo "✗ 未找到 katago 二进制"
         exit 1
     fi
-    cp "$FOUND" ./katago
+    # 只在不是同一文件时才复制（zip 可能直接解压到 ./katago）
+    if [ "$(realpath "$FOUND")" != "$(realpath ./katago 2>/dev/null || echo '')" ]; then
+        cp "$FOUND" ./katago
+    fi
     chmod +x ./katago
     rm -f katago.zip
     echo "✓ KataGo 下载完成（来源: $FOUND）"
