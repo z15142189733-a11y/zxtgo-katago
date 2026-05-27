@@ -4,20 +4,29 @@
 # ============================================================
 set -e
 
-# ── 安装 KataGo 运行所需的系统库 ─────────────────────────
-echo "▶ 安装系统依赖 libzip..."
+# ── 准备 KataGo 运行所需的系统库（不需要 root/apt-get）──
+echo "▶ 准备 libzip.so.5 依赖..."
 mkdir -p ./lib
-apt-get update -qq 2>/dev/null
-# 先尝试直接装 libzip5，失败则装 libzip4 并复制过来
-apt-get install -y libzip5 2>/dev/null || apt-get install -y libzip4 2>/dev/null || true
-# 找到实际的 .so 文件，复制到 ./lib/libzip.so.5（KataGo 要找这个名字）
-LIBZIP=$(find /usr/lib /lib -name "libzip.so*" -not -type d 2>/dev/null | head -1)
-if [ -n "$LIBZIP" ]; then
-    cp "$LIBZIP" ./lib/libzip.so.5
-    echo "✓ libzip 准备完成: $LIBZIP → ./lib/libzip.so.5"
-else
-    echo "⚠ 未找到 libzip，KataGo 可能无法运行"
+
+# 直接下载 .deb 包，用 dpkg-deb 提取（完全无需 root 权限）
+LIBZIP5_URL="http://archive.ubuntu.com/ubuntu/pool/main/libz/libzip/libzip5_1.7.3-1_amd64.deb"
+wget -q --timeout=60 "$LIBZIP5_URL" -O /tmp/libzip5.deb && \
+  dpkg-deb -x /tmp/libzip5.deb /tmp/lz_extract/ && \
+  find /tmp/lz_extract -name "libzip.so*" -exec cp {} ./lib/ \; && \
+  echo "✓ libzip 提取完成" || echo "⚠ libzip5 包下载失败，继续尝试..."
+
+# 如果 libzip.so.5 还不存在，尝试从系统找并复制
+if [ ! -f "./lib/libzip.so.5" ]; then
+    SYSLIB=$(find /usr/lib /lib -name "libzip.so*" -not -type d 2>/dev/null | head -1)
+    if [ -n "$SYSLIB" ]; then
+        cp "$SYSLIB" ./lib/libzip.so.5
+        echo "✓ 从系统复制 libzip: $SYSLIB"
+    else
+        echo "⚠ 未找到 libzip，KataGo 启动可能失败"
+    fi
 fi
+
+echo "lib 目录内容: $(ls ./lib/ 2>/dev/null || echo '空')"
 
 # v1.14.1 eigen（CPU纯计算版）是最后一个提供 Linux CPU 预编译二进制的稳定版本
 KATAGO_VERSION="v1.14.1"
